@@ -1,92 +1,88 @@
 #include <SSD1306.h>
 #include <PubSubClient.h>
 #include <Wire.h>
-#include "MAX30100_PulseOximeter.h"
 #include "WiFi_Manager.h"
 #include "MQTT.h" 
+#include "myMax30105.h"
 
-float Hr, SpO2, pre_Hr = 0, pre_SpO2 = 0;
-uint16_t ir, red;
+uint32_t ir, red;
 int count = 0, modee = 2; 
 bool fl_display, fl_connect = false;
 uint32_t tsLastReport = 0;
 
-MAX30100 sensor;
-PulseOximeter pox;
+MAX30105 sensor;
 WiFiManager wm;
 SSD1306  display(0x3C, 21, 22);
-#define REPORTING_PERIOD_MS 2000
+#define REPORTING_PERIOD_MS 1000
 
-void onBeatDetected()
-{
-    Serial.println("Beat Detected!");
-}
+int32_t hr, spO2, pre_hr = 0, pre_spO2 = 0;
 
-void CheckHealth(float Hr,float SpO2){
+void CheckHealth(int32_t hr,int32_t spO2){
     String str_hr, str_sp; 
-    if (Hr < 60) str_hr = "Low HeartRate";
-    else if (Hr >= 60 && Hr <= 120) str_hr = "Nornal HeartRate";
+    if (hr < 60) str_hr = "Low HeartRate";
+    else if (hr >= 60 && hr <= 120) str_hr = "Nornal HeartRate";
     else str_hr = "High HeartRate";
     
-    if (SpO2 < 94) str_sp = "Low SPO2";
-    else if (SpO2 >= 94 && SpO2 <= 100) str_sp = "Nornal SPO2";
+    if (spO2 < 94) str_sp = "Low SPO2";
+    else if (spO2 >= 94 && spO2 <= 100) str_sp = "Nornal SPO2";
     else str_sp = "High SPO2";
     display.clear();
     display.drawString(0, 0, str_hr);
     display.drawString(0, 15, str_sp);
     delay(1000);
     display.display();
-    initPox();
-    sensor.update();
-    sensor.getRawValues(&ir, &red);
+    initMax();
+    sensor.check();
+    getIrRed(sensor, ir, red);
 }
  
-void DisplayData(float Hr, float SpO2, bool fl){
+void DisplayData(float hr, float spO2, bool fl){
     display.clear();
-      if (fl) {
-        if ( count >= 5) {
-        display.drawString(0, 0, "HR: " + String(Hr) + " bpm");
-        display.drawString(0, 15, "SpO2: " + String(SpO2) +" %");
+    if (fl) {
+      if (count >= 5) {
+        display.drawString(0, 0, "HR: " + String(hr) + " bpm");
+        display.drawString(0, 15, "SpO2: " + String(spO2) +" %");
         
         if (modee == 1) {
           display.drawString(0, 30, "Offline mode");
           display.drawString(0, 45, "Time: " + String(count) + "s");
         }
-        else display.drawString(0, 30, "Online mode");
-        display.display();
-        delay(2000);
-        CheckHealth(Hr, SpO2);
-        }
         else {
-        display.drawString(0, 30, "Detecting....");
-        display.display();
+          display.drawString(0, 30, "Online mode");
         }
+      
+        display.display();
+        delay(1000);
+        CheckHealth(hr, spO2);
       }
       else {
-        display.drawString(0, 0, "No detected");
-        display.drawString(0, 30, "Put on sensor");
+        display.drawString(0, 30, "Detecting....");
         display.display();
       }
-}
-float readHeartRate(bool fl){
-    if (!fl) return 0;
-    float temp = pox.getHeartRate();
-    if (pre_Hr == 0) pre_Hr = temp;
-    else {
-      if (temp >= 120 || temp <= 60 ) temp = pre_Hr; 
-      else pre_Hr = temp;
     }
-    return temp;
-}
-float readSpO2(bool fl){
-    if (!fl) return 0;
-    float temp = pox.getSpO2();
-    if (pre_SpO2 == 0) pre_SpO2 = temp;
     else {
-      if (temp >= 100 || temp <= 90 ) temp = pre_SpO2; 
-      else pre_SpO2 = temp;
+      display.drawString(0, 0, "No detected");
+      display.drawString(0, 30, "Put on sensor");
+      display.display();
     }
-    return temp;
+}
+int32_t processHeartRate(bool fl, int32_t hr){
+    if (!fl) return 0;
+    if (pre_hr == 0) pre_hr = hr;
+    else {
+      if (hr >= 120 || hr <= 60 ) hr = pre_hr; 
+      else pre_hr = hr;
+    }
+    return hr;
+}
+int32_t processSpO2(bool fl, int32_t spO2){
+    if (!fl) return 0;
+    if (pre_spO2 == 0) pre_spO2 = spO2;
+    else {
+      if (spO2 >= 100 || spO2 <= 90 ) spO2 = pre_spO2; 
+      else pre_spO2 = spO2;
+    }
+    return spO2;
 }
 void Wifi_MQTT_Connect(){
     setup_WiFiManager(wm);
@@ -95,19 +91,26 @@ void Wifi_MQTT_Connect(){
     client.setCallback(callback);     
     connect_to_broker();
 }
-void initPox(){
-    if (!pox.begin()) {
-      Serial.println("ERROR: Failed to initialize pulse oximeter");
-    } else {
-      Serial.println("SUCCESS to initialize pulse oximeter");
-      }
-    pox.setOnBeatDetectedCallback(onBeatDetected); 
+void initMax(){
+    if (!sensor.begin(Wire, I2C_SPEED_FAST)) //Use default I2C port, 400kHz speed
+    {
+      Serial.println(F("MAX30105 was not found. Please check wiring/power."));
+      while (1);
+    }
+    byte ledBrightness = 100; //Options: 0=Off to 255=50mA
+    byte sampleAverage = 4; //Options: 1, 2, 4, 8, 16, 32
+    byte ledMode = 2; //Options: 1 = Red only, 2 = Red + IR, 3 = Red + IR + Green
+    byte sampleRate = 100; //Options: 50, 100, 200, 400, 800, 1000, 1600, 3200
+    int pulseWidth = 411; //Options: 69, 118, 215, 411
+    int adcRange = 4096; //Options: 2048, 4096, 8192, 16384
+  
+    sensor.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange); //Configure sensor with these settings
 }
 void SelectMode(int *modee){ 
     uint32_t ts = 0 ;
     // Mode 1:online, 2:offline
     count = 0; *modee = 0;
-    initPox();
+    initMax();
     Serial.println("Select mode: ");
     Serial.println("Put in 5s to select online mode");
     display.clear();
@@ -116,8 +119,8 @@ void SelectMode(int *modee){
     display.drawString(0, 30, "use online mode ");
     display.display();
     while (*modee == 0 && count < 10){
-       sensor.update();
-       sensor.getRawValues(&ir, &red);
+       sensor.check();
+       ir = sensor.getIR();
        if (ir > 2000) *modee = 2;
        if (millis() - ts > 1000)
        {
@@ -140,7 +143,7 @@ void SelectMode(int *modee){
       display.display();
       delay(1000);
       fl_connect = false ;
-      initPox();
+      initMax();
     }
     else {
       Serial.println("Online mode");
@@ -178,38 +181,39 @@ void setup() {
     display.flipScreenVertically();
     Wifi_MQTT_Connect();
     Serial.print("Initializing pulse oximeter..");
-    initPox();
+    initMax();
 }
 void loop() {
-    if (modee == 2) {
-        if (WiFi.status() != WL_CONNECTED){
-            display.clear();
-            display.drawString(0, 0, "Lost Wifi");
-            display.drawString(0, 15, "Try to reconnect");
-            display.display();
-            fl_connect = false;
-            delay(1000);
-        }
-   
-        if(!checkList_andConnect_WiFi() && !fl_connect) {
-            display.clear();
-            display.drawString(0, 0, "Try to connect");
-            display.drawString(0, 15, "WiFi Failed");
-            display.display();
-            delay(2000);
-            SelectMode(&modee);
-        }  
-        if (!client.connected() && modee == 2){
-            connect_to_broker();
-            initPox();
-        }
-        else client.loop();
-    }
-    pox.update();       
-    sensor.update();  
-    sensor.getRawValues(&ir, &red);
-    Hr = readHeartRate(fl_display);
-    SpO2 = readSpO2(fl_display);
+//    if (modee == 2) {
+//        if (WiFi.status() != WL_CONNECTED){
+//            display.clear();
+//            display.drawString(0, 0, "Lost Wifi");
+//            display.drawString(0, 15, "Try to reconnect");
+//            display.display();
+//            fl_connect = false;
+//            delay(1000);
+//        }
+//   
+//        if(!checkList_andConnect_WiFi() && !fl_connect) {
+//            display.clear();
+//            display.drawString(0, 0, "Try to connect");
+//            display.drawString(0, 15, "WiFi Failed");
+//            display.display();
+//            delay(2000);
+//            SelectMode(&modee);
+//        }  
+//        if (!client.connected() && modee == 2){
+//            connect_to_broker();
+//            initMax();
+//        }
+//        else client.loop();
+//    }
+    sensor.check();  
+    getSensorMax(sensor, hr, spO2);
+    getIrRed(sensor, ir, red);
+    hr = processHeartRate(fl_display, hr);
+    spO2 = processSpO2(fl_display, spO2);
+
     if (millis() - tsLastReport > REPORTING_PERIOD_MS)
     {  
         // chuyen online mode
@@ -227,21 +231,21 @@ void loop() {
        } else {
            fl_display = false; count = 0;             
        }
-        DisplayData(Hr, SpO2, fl_display);
+        DisplayData(hr, spO2, fl_display);
         Serial.print("Heart rate: ");
-        Serial.println(Hr);
+        Serial.println(hr);
         Serial.print("Pulse Oximeter: ");
-        Serial.print(SpO2);
+        Serial.print(spO2);
         Serial.println("%");
         Serial.print("IR=");
         Serial.println(ir);
         Serial.println("*********************************");        
-        if (modee == 2 && fl_display && count >= 5) {
-            String hr_str = "Heart beat rate: " + String(Hr) + "bpm";
-            String spo2_str = "Pulse Oximeter: " + String(SpO2) + "%";
-            String message = hr_str + "\n" + spo2_str;
-            publish_message(message);
-        }
+//        if (modee == 2 && fl_display && count >= 5) {
+//            String hr_str = "Heart beat rate: " + String(hr) + "bpm";
+//            String spo2_str = "Pulse Oximeter: " + String(spO2) + "%";
+//            String message = hr_str + "\n" + spo2_str;
+//            publish_message(message);
+//        }
         tsLastReport = millis();
     }    
 }
