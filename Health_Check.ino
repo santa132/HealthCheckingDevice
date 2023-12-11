@@ -17,7 +17,8 @@ SSD1306  display(0x3C, 21, 22);
 
 int32_t hr, spO2, pre_hr = 0, pre_spO2 = 0;
 
-void CheckHealth(int32_t hr,int32_t spO2){
+void CheckHealth(int32_t hr,int32_t spO2)
+{
     String str_hr, str_sp; 
     if (hr < 60) str_hr = "Low HeartRate";
     else if (hr >= 60 && hr <= 120) str_hr = "Nornal HeartRate";
@@ -36,7 +37,8 @@ void CheckHealth(int32_t hr,int32_t spO2){
     getIrRed(sensor, ir, red);
 }
  
-void DisplayData(float hr, float spO2, bool fl){
+void DisplayData(float hr, float spO2, bool fl)
+{
     display.clear();
     if (fl) {
       if (count >= 5) {
@@ -184,30 +186,30 @@ void setup() {
     initMax();
 }
 void loop() {
-//    if (modee == 2) {
-//        if (WiFi.status() != WL_CONNECTED){
-//            display.clear();
-//            display.drawString(0, 0, "Lost Wifi");
-//            display.drawString(0, 15, "Try to reconnect");
-//            display.display();
-//            fl_connect = false;
-//            delay(1000);
-//        }
-//   
-//        if(!checkList_andConnect_WiFi() && !fl_connect) {
-//            display.clear();
-//            display.drawString(0, 0, "Try to connect");
-//            display.drawString(0, 15, "WiFi Failed");
-//            display.display();
-//            delay(2000);
-//            SelectMode(&modee);
-//        }  
-//        if (!client.connected() && modee == 2){
-//            connect_to_broker();
-//            initMax();
-//        }
-//        else client.loop();
-//    }
+   if (modee == 2) {
+       if (WiFi.status() != WL_CONNECTED){
+           display.clear();
+           display.drawString(0, 0, "Lost Wifi");
+           display.drawString(0, 15, "Try to reconnect");
+           display.display();
+           fl_connect = false;
+           delay(1000);
+       }
+  
+       if(!checkList_andConnect_WiFi() && !fl_connect) {
+           display.clear();
+           display.drawString(0, 0, "Try to connect");
+           display.drawString(0, 15, "WiFi Failed");
+           display.display();
+           delay(2000);
+           SelectMode(&modee);
+       }  
+       if (!client.connected() && modee == 2){
+           connect_to_broker();
+           initMax();
+       }
+       else client.loop();
+   }
     sensor.check();  
     getSensorMax(sensor, hr, spO2);
     getIrRed(sensor, ir, red);
@@ -240,12 +242,12 @@ void loop() {
         Serial.print("IR=");
         Serial.println(ir);
         Serial.println("*********************************");        
-//        if (modee == 2 && fl_display && count >= 5) {
-//            String hr_str = "Heart beat rate: " + String(hr) + "bpm";
-//            String spo2_str = "Pulse Oximeter: " + String(spO2) + "%";
-//            String message = hr_str + "\n" + spo2_str;
-//            publish_message(message);
-//        }
+       if (modee == 2 && fl_display && count >= 5) {
+           String hr_str = "Heart beat rate: " + String(hr) + "bpm";
+           String spo2_str = "Pulse Oximeter: " + String(spO2) + "%";
+           String message = hr_str + "\n" + spo2_str;
+           publish_message(message);
+       }
         tsLastReport = millis();
     }    
 }

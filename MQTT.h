@@ -6,7 +6,8 @@
 WiFiClient wifiClient;
 PubSubClient client(wifiClient);
 
-void connect_to_broker() {
+void connect_to_broker() 
+{
     while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
     String clientId = "IOT";
@@ -21,7 +22,9 @@ void connect_to_broker() {
     }
   }
 }
-void callback(char* topic, byte *payload, unsigned int length) {
+
+void callback(char* topic, byte *payload, unsigned int length) 
+{
     Serial.println("Receive message from broker-----");
     Serial.print("topic: ");
     Serial.println(topic);
